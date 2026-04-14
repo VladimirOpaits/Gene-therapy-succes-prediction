@@ -17,7 +17,24 @@ def test_fda_parser():
     df = parser.fetch_training_data_df(limit=5)
     print(f"✓ Fetched {len(df)} trials")
     print(f"  Columns: {list(df.columns)}")
-    return df
+
+    print("\n--- Testing Drug Extraction & Enrichment ---")
+    df_enriched = parser.extract_drug_names(df, use_llm=False)
+    print(f"Extracted drugs sample:")
+    for idx, (nct, drugs) in enumerate(zip(df_enriched['nct_id'].head(3), df_enriched['extracted_drugs'].head(3))):
+        print(f"  {nct}: {drugs}")
+
+    print("\nAdding drug info (PubChem/Wikipedia)...")
+    df_with_info = parser.add_drug_info(df_enriched, use_extracted=True)
+    for idx, row in df_with_info.head(2).iterrows():
+        print(f"\n  Trial: {row['title'][:60]}...")
+        if row['drug_info']:
+            for drug in row['drug_info']:
+                print(f"    • {drug['name']} ({drug['source']}): {drug['description'][:80]}...")
+        else:
+            print(f"    • No drug info found")
+
+    return df_with_info
 
 def test_component_extractor(df):
     if not OPENAI_API_KEY:
@@ -54,10 +71,12 @@ def main():
     df_enriched = test_component_extractor(df)
 
     if df_enriched is not None:
-        print("\nSample enriched data:")
+        print("\n--- Component Extraction Results ---")
         for _, row in df_enriched.head(3).iterrows():
             print(f"\nTrial: {row['title'][:60]}...")
             print(f"  Extracted components: {row['extracted_components']}")
+            if 'drug_info' in df_enriched.columns and row['drug_info']:
+                print(f"  Drug info: {len(row['drug_info'])} drugs found")
 
 if __name__ == "__main__":
     main()

@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Analyze this user task for complexity. Is it simple (data lookup, quick question, small edit) or complex (architecture design, multi-file refactoring, algorithm design, research requiring reasoning)?\n\nTask: $ARGUMENTS\n\nRespond with ONLY \"simple\" or \"complex\". If complex, the user should consider starting a new session with Opus model for better results."
+          }
+        ]
+      }
+    ]
+  }
+}
