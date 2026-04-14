@@ -5,3 +5,6 @@ __pycache__/
 *$py.class
 __pycache__
 .mypy_cache
+settings.json
+.pytest_cache
+.claude
