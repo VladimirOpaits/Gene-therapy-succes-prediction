@@ -30,6 +30,15 @@ class FDA_PCh_Parser:
             "fields": "NCTId,OfficialTitle,OverallStatus,LeadSponsorName,LeadSponsorClass,Phase,InterventionName,PrimaryCompletionDate"
         }
         return self._get_raw_data(params)
+
+    def fetch_phase2_private_trials(self, query="gene therapy", status="RECRUITING|ACTIVE_NOT_RECRUITING", limit=100):
+        params = {
+            "query.term": query,
+            "filter.overallStatus": status,
+            "pageSize": limit,
+            "fields": "NCTId,OfficialTitle,OverallStatus,LeadSponsorName,LeadSponsorClass,Phase,InterventionName,PrimaryCompletionDate"
+        }
+        return self._get_raw_data(params)
     
     def _flatten_study(self, study_json):
         ps = study_json.get('protocolSection', {})
@@ -63,6 +72,16 @@ class FDA_PCh_Parser:
         raw_data = self.fetch_oracle_leads(query, limit)
         flattened_data = [self._flatten_study(s) for s in raw_data]
         return pd.DataFrame(flattened_data)
+
+    def fetch_phase2_private_df(self, query="gene therapy", limit=100):
+        raw_data = self.fetch_phase2_private_trials(query, limit=limit)
+        flattened_data = [self._flatten_study(s) for s in raw_data]
+        df = pd.DataFrame(flattened_data)
+
+        df = df[df['sponsor_class'] == 'INDUSTRY']
+        df = df[df['phases'].str.contains('PHASE2', case=False, na=False)]
+
+        return df
     
     def extract_drug_names(self, df: pd.DataFrame, use_llm: bool = False) -> pd.DataFrame:
         if use_llm:
@@ -91,8 +110,11 @@ class FDA_PCh_Parser:
         )
         return df
 
+    def _is_valid_drug_name(self, drug_name: str) -> bool:
+        return drug_name and drug_name.strip() and drug_name.strip() != "N/A"
+
     def _search_pubchem(self, drug_name: str) -> Optional[Dict]:
-        if not drug_name or drug_name == "N/A":
+        if not self._is_valid_drug_name(drug_name):
             return None
 
         url = f"{self.PUBCHEM_URL}/{drug_name}/description/JSON"
@@ -107,13 +129,12 @@ class FDA_PCh_Parser:
                             "source": "pubchem",
                             "description": item['Description']
                         }
-                return None
         except requests.RequestException:
-            return None
+            pass
         return None
 
     def _search_wikipedia(self, drug_name: str) -> Optional[Dict]:
-        if not drug_name or drug_name == "N/A":
+        if not self._is_valid_drug_name(drug_name):
             return None
 
         try:
@@ -128,19 +149,15 @@ class FDA_PCh_Parser:
                 "source": "wikipedia",
                 "description": result
             }
-        except wikipedia.exceptions.DisambiguationError:
-            return None
-        except wikipedia.exceptions.PageError:
-            return None
-        except Exception:
-            return None
+        except (wikipedia.exceptions.DisambiguationError, wikipedia.exceptions.PageError, Exception):
+            pass
+        return None
 
     def search_drug_info(self, drug_name: str) -> Optional[Dict]:
-        if not drug_name or drug_name.strip() == "":
+        if not self._is_valid_drug_name(drug_name):
             return None
 
         drug_name = drug_name.strip()
-
         pubchem_result = self._search_pubchem(drug_name)
         if pubchem_result:
             return pubchem_result
@@ -150,25 +167,6 @@ class FDA_PCh_Parser:
             return wikipedia_result
 
         return None
-
-    def get_drug_summary(self, drug_name):
-        if not drug_name or drug_name == "N/A":
-            return "N/A"
-
-        name = drug_name.split(',')[0].strip()
-        url = f"{self.PUBCHEM_URL}/{name}/description/JSON"
-
-        try:
-            r = requests.get(url, timeout=5)
-            if r.status_code == 200:
-                info = r.json().get('InformationList', {}).get('Information', [])
-                for item in info:
-                    if 'Description' in item:
-                        return item['Description']
-                return "No description found"
-        except:
-            return "Search failed"
-        return "N/A"
     
     def add_drug_info(self, df: pd.DataFrame, use_extracted: bool = True) -> pd.DataFrame:
         print(f"Enriching {len(df)} rows with drug info...")
@@ -196,18 +194,5 @@ class FDA_PCh_Parser:
         successful = df[df['drug_info'].apply(len) > 0]
         print(f"✓ Successfully enriched: {len(successful)}/{len(df)} trials")
         print(f"  Total drugs found: {sum(df['drug_info'].apply(len))}")
-
-        return df
-
-    def add_drug_summaries(self, df):
-        print(f"Enriching {len(df)} rows...")
-        df['drug_summary'] = df['drugs'].apply(self.get_drug_summary)
-
-        failed = df[df['drug_summary'].isin(['N/A', 'No description found', 'Search failed'])]
-        print(f"Success: {len(df) - len(failed)}")
-        print(f"Failed: {len(failed)}")
-
-        if not failed.empty:
-            print("Failed drugs samples:", failed['drugs'].unique()[:5])
 
         return df
